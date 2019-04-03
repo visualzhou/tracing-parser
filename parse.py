@@ -19,8 +19,24 @@ class Work:
     def __setitem__(self, key, value):
         self.events[key] = value
 
+    def has(self, key):
+        return key in self.events
+
 def get_avg_duration(works, before, after):
-    return statistics.mean(w[after].timestamp - w[before].timestamp for w in works if w.has_txn)
+    all_durations = [w[after].timestamp - w[before].timestamp for w in works if (w.has_txn and w.has(after) and w.has(before))]
+
+    if not all_durations:
+        return None
+    # In microseconds
+    return statistics.mean(all_durations) / 1000
+
+def print_result_line(works, before, after):
+    print("{:40}----->   {:40}".format(before, after), end = "")
+    stat = get_avg_duration(works, before, after)
+    if stat:
+        print("{:11.3f}".format(stat))
+    else:
+        print("{:>11}".format("None"));
 
 def main():
     if len(sys.argv) != 2:
@@ -55,6 +71,7 @@ def main():
 
     event_durations = [
         ("mongo:before_schedule_write_to_oplog", "mongo:after_schedule_write_to_oplog"),
+        ("mongo:after_schedule_write_to_oplog", "mongo:finish_write_oplog"),
         ("mongo:after_schedule_write_to_oplog", "mongo:after_dispatch_writes"),
         ("mongo:after_schedule_write_to_oplog", "mongo:after_oplog_write"),
         ("mongo:after_oplog_write", "mongo:after_write_consistency_markers"),
@@ -65,21 +82,20 @@ def main():
         ("mongo:after_schedule_write_to_oplog", "mongo:start_commit_apply"),
         ("mongo:start_commit_apply", "mongo:start_read_from_oplog_chain"),
         ("mongo:start_read_from_oplog_chain", "mongo:start_traverse_iterater"),
-        ("mongo:start_traverse_iterater", "mongo:start_reverse_oplog_from_disk"),
+        ("mongo:start_traverse_iterater", "mongo:end_read_oplog_chain"),
+        ("mongo:end_read_oplog_chain", "mongo:start_reverse_oplog_from_disk"),
         ("mongo:start_reverse_oplog_from_disk", "mongo:start_build_cached_ops"),
         ("mongo:start_build_cached_ops", "mongo:end_build_cached_ops"),
         ("mongo:end_build_cached_ops", "mongo:txn_apply"),
     ]
     print("Time durations (in microseconds):")
     for before, after in event_durations:
-        print("{:40}----->   {:40}".format(before, after), end = "")
-        print("{:11.3f}".format(get_avg_duration(works, before, after)/1000))
+        print_result_line(works, before, after)
 
     print()
     print("Time durations of transaction dispacth (in microseconds):")
     for before, after in txn_application_durations:
-        print("{:40}----->   {:40}".format(before, after), end = "")
-        print("{:11.3f}".format(get_avg_duration(works, before, after)/1000))
+        print_result_line(works, before, after)
 
 if __name__ == '__main__':
     main()
